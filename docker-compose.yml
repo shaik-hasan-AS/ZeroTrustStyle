@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: ./gateway
+    container_name: gateway
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./certs:/certs:ro
+    networks:
+      - zero-trust-net
+    depends_on:
+      - account-service
+
+  account-service:
+    build:
+      context: ./account-service
+    container_name: account-service
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./certs:/certs:ro
+      - account_data:/data
+    networks:
+      - zero-trust-net
+    depends_on:
+      - ledger-service
+      - opa
+
+  ledger-service:
+    build:
+      context: ./ledger-service
+    container_name: ledger-service
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./certs:/certs:ro
+      - ledger_data:/data
+    networks:
+      - zero-trust-net
+    depends_on:
+      - opa
+
+  opa:
+    image: openpolicyagent/opa:latest-debug
+    container_name: opa
+    ports:
+      - "8181:8181"
+    command:
+      - "run"
+      - "--server"
+      - "--addr"
+      - "0.0.0.0:8181"
+      - "/policies"
+    volumes:
+      - ./opa/policies:/policies:ro
+    networks:
+      - zero-trust-net
+
+volumes:
+  account_data:
+  ledger_data:
+
+networks:
+  zero-trust-net:
+    driver: bridge
