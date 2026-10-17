@@ -148,6 +148,40 @@ reason := "Compliance/Admin officer authorized to inspect immutable ledger audit
     input.user.role in ["compliance", "admin"]
 }
 
+# Rule: Ledger admin maintenance operations (tamper demo and reset)
+allow if {
+    input.service == "ledger-service"
+    input.caller.workload_cn in ["account-service", "gateway"]
+    input.action.method == "POST"
+    input.action.path in ["/ledger/simulate-tamper", "/ledger/reset"]
+    input.user.role == "admin"
+}
+
+reason := "Administrator authorized for ledger state maintenance" if {
+    input.service == "ledger-service"
+    input.caller.workload_cn in ["account-service", "gateway"]
+    input.action.method == "POST"
+    input.action.path in ["/ledger/simulate-tamper", "/ledger/reset"]
+    input.user.role == "admin"
+}
+
+# Rule: Account service admin reset
+allow if {
+    input.service == "account-service"
+    valid_account_service_workload
+    input.action.method == "POST"
+    input.action.path == "/accounts/reset"
+    input.user.role == "admin"
+}
+
+reason := "Administrator authorized for account balance reset" if {
+    input.service == "account-service"
+    valid_account_service_workload
+    input.action.method == "POST"
+    input.action.path == "/accounts/reset"
+    input.user.role == "admin"
+}
+
 # -------------------------------------------------------------
 # SPECIFIC ZERO TRUST DENIAL REASONS
 # -------------------------------------------------------------
@@ -168,6 +202,7 @@ reason := "Zero Trust Guardrail Denied: Self-service customer transfer exceeds p
 reason := "Zero Trust Workload Isolation Denied: Caller workload is not authorized to write directly to Core Ledger" if {
     input.service == "ledger-service"
     input.action.method == "POST"
+    input.action.path == "/ledger/entries"
     not valid_ledger_service_workload
 }
 

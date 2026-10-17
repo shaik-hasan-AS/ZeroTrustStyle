@@ -1,6 +1,25 @@
 version: '3.8'
 
 services:
+  client:
+    build:
+      context: ./client
+    container_name: client-portal
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./certs:/certs:ro
+      - ./client/app:/app
+    environment:
+      - GATEWAY_URL=https://gateway:8000
+      - ACCOUNT_SERVICE_URL=https://account-service:8001
+      - LEDGER_SERVICE_URL=https://ledger-service:8002
+      - OPA_URL=http://opa:8181
+    networks:
+      - zero-trust-net
+    depends_on:
+      - gateway
+
   gateway:
     build:
       context: ./gateway

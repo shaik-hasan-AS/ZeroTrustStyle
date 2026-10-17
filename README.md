@@ -84,9 +84,37 @@ Generates Root CA and certificates for `gateway`, `account-service`, `ledger-ser
 docker-compose up --build -d
 ```
 
+### 3. Open the Interactive Banking Web App & Zero-Trust Cockpit
+Open your browser at:
+👉 **`http://localhost:3000`**
+
+The Web Application features:
+* **Banking Operations Dashboard**: Switch between Alice (Customer), Bob (Customer), Tim (Teller), Carol (Auditor), and Dave (Admin). Perform transfers, check balances, and view receipts.
+* **Cryptographic Ledger Visualizer**: Inspect the blockchain-style SHA-256 hash-chain journal. Run live cryptographic verification and simulate database tamper attacks.
+* **Live Zero-Trust Inspector**: Inspect Layer 4 mTLS workload identity, Layer 7 JWT claims, and OPA policy decisions in real time with structured SIEM event logs.
+* **1-Click Attack & Verification Suite**: Run all 9 Zero-Trust security scenarios with live interactive terminal playback.
+* **Wireshark Live Demo Studio**: One-click display filter copy chips, traffic burst generator, and step-by-step presentation script.
+
 ---
 
-## 🧪 Comprehensive Test Scenarios
+## 🦈 Live Wireshark Packet Inspection Guide
+
+To demonstrate cryptographic mutual TLS (mTLS) enforcement to an audience:
+
+1. **Launch Wireshark capturing on the Docker/host interface**:
+   ```bash
+   sudo wireshark -i any -k -f "tcp port 8000 or tcp port 8001 or tcp port 8002"
+   ```
+2. **Apply Wireshark Display Filters**:
+   * `tls.handshake.type == 13` : **Certificate Request** (Proves the server requires client authentication).
+   * `tls.handshake.type == 11` : **Certificate Exchange** (Inspect client CN `client-fintech-portal` and server CN `gateway`).
+   * `tls.handshake.type == 15` : **Certificate Verify** (Proves client possesses the matching private key).
+3. **Trigger Live Traffic**:
+   Navigate to the **Wireshark Live Demo Studio** tab in the web app (`http://localhost:3000`) and click **"Generate Live Traffic Burst"**.
+
+---
+
+## 🧪 Comprehensive Test Scenarios (CLI)
 
 Run the complete test suite verifying all 9 security scenarios:
 ```bash

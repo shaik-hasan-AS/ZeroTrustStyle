@@ -294,3 +294,50 @@ async def transfer_funds(account_id: str, transfer: TransferRequest, request: Re
         "correlation_id": correlation_id,
         "authz_reason": reason
     }
+
+@app.post("/accounts/reset")
+async def reset_accounts(request: Request):
+    caller_cn = extract_workload_cn(request)
+    user_id = request.headers.get("x-user-id", "anonymous")
+    user_role = request.headers.get("x-user-role", "anonymous")
+    correlation_id = request.headers.get("x-correlation-id", str(uuid.uuid4()))
+
+    opa_input = {
+        "input": {
+            "service": "account-service",
+            "caller": {"workload_cn": caller_cn},
+            "user": {"id": user_id, "role": user_role},
+            "action": {"method": "POST", "path": "/accounts/reset"},
+            "resource": {"type": "account_admin"}
+        }
+    }
+
+    decision = await evaluate_opa_policy(opa_input)
+    is_allowed = decision.get("allow", False)
+    reason = decision.get("reason", "No reason provided")
+
+    log_security_event("ACCOUNT_RESET_AUTHZ", correlation_id, caller_cn, user_id, user_role, "POST /accounts/reset", "accounts:all", "ALLOW" if is_allowed else "DENY", reason)
+
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail={
+            "error": "Forbidden",
+            "message": "Only administrator role can reset demo accounts",
+            "reason": reason,
+            "correlation_id": correlation_id
+        })
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM accounts")
+    cursor.executemany("""
+        INSERT INTO accounts (account_id, owner_id, account_type, balance, currency)
+        VALUES (?, ?, ?, ?, ?)
+    """, [
+        ("acc_1001", "alice", "Checking", 5000.0, "USD"),
+        ("acc_1002", "bob", "Savings", 3200.0, "USD"),
+        ("acc_1003", "charlie", "Investment", 25000.0, "USD")
+    ])
+    conn.commit()
+    conn.close()
+
+    return {"status": "ACCOUNTS_RESET_SUCCESSFUL", "message": "Demo balances restored to default.", "correlation_id": correlation_id}

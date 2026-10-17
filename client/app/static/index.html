@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroTrust Banking • mTLS & OPA Reference Implementation</title>
+  <meta name="description" content="Zero-Trust core banking demo enforcing mTLS workload identity and OPA ABAC policies.">
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div>
+        <div class="brand-name">ZeroTrust Banking</div>
+        <div class="brand-desc">mTLS Layer 4 Workload Identity & OPA ABAC Policy Enforcement</div>
+      </div>
+    </div>
+
+    <div class="mesh-status">
+      <div class="node-pill">
+        <span class="dot" id="dotGateway"></span>
+        <span>gateway:8000</span>
+      </div>
+      <div class="node-pill">
+        <span class="dot" id="dotAccount"></span>
+        <span>accounts:8001</span>
+      </div>
+      <div class="node-pill">
+        <span class="dot" id="dotLedger"></span>
+        <span>ledger:8002</span>
+      </div>
+      <div class="node-pill">
+        <span class="dot" id="dotOpa"></span>
+        <span>opa:8181</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- User / Persona Switcher -->
+  <div class="user-bar">
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <span class="user-label">User:</span>
+      <div class="user-chips" id="personaButtonGroup">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+
+    <div class="user-meta-right">
+      <span class="mtls-tag" id="activeWorkloadLabel">mTLS: client-fintech-portal</span>
+      <button class="btn btn-secondary btn-sm" id="btnSystemReset" title="Reset account balances and ledger entries to defaults">
+        Reset Demo
+      </button>
+    </div>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs-nav" role="tablist">
+    <button class="tab-btn active" data-tab="tab-banking">Accounts & Transfer</button>
+    <button class="tab-btn" data-tab="tab-ledger">Audit Ledger</button>
+    <button class="tab-btn" data-tab="tab-inspector">Policy Inspector</button>
+    <button class="tab-btn" data-tab="tab-scenarios">Security Scenarios (1–9)</button>
+    <button class="tab-btn" data-tab="tab-wireshark">Wireshark Demo</button>
+  </nav>
+
+  <!-- TAB 1: ACCOUNTS & TRANSFER -->
+  <section id="tab-banking" class="tab-panel active">
+    <div class="grid-2">
+      
+      <!-- Left: Accounts -->
+      <div>
+        <div class="card" style="margin-bottom: 16px;">
+          <div class="card-title-row">
+            <span class="card-heading">Active Persona Profile</span>
+            <span class="tag" id="personaRoleBadge">CUSTOMER</span>
+          </div>
+          <div>
+            <div id="personaName" style="font-size: 15px; font-weight: 600; color: #fff;">Alice Smith</div>
+            <div id="personaDescription" style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+              Retail customer. Owns account acc_1001.
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">
+              <span id="personaAccountMeta">Account: acc_1001</span>
+              <span>•</span>
+              <span id="personaLimitMeta">Transfer Limit: $10,000.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title-row">
+            <span class="card-heading">Accounts</span>
+            <button class="btn btn-secondary btn-sm" id="btnRefreshAccounts">Refresh</button>
+          </div>
+          <div id="accountsContainer">
+            <!-- Rendered via JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Transfer Form -->
+      <div class="card">
+        <div class="card-title-row">
+          <span class="card-heading">Make a Transfer</span>
+          <span class="tag">ABAC Guardrails</span>
+        </div>
+
+        <form id="transferForm">
+          <div class="field">
+            <label for="transferSource">From Account</label>
+            <select id="transferSource" class="select" required>
+              <option value="acc_1001">acc_1001 (Alice Smith • Checking)</option>
+              <option value="acc_1002">acc_1002 (Bob Jones • Savings)</option>
+              <option value="acc_1003">acc_1003 (Charlie • Investment)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="transferDest">To Account</label>
+            <select id="transferDest" class="select" required>
+              <option value="acc_1002">acc_1002 (Bob Jones • Savings)</option>
+              <option value="acc_1001">acc_1001 (Alice Smith • Checking)</option>
+              <option value="acc_1003">acc_1003 (Charlie • Investment)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="transferAmount">Amount (USD)</label>
+            <input type="number" id="transferAmount" class="input" value="500.00" min="0.01" step="0.01" required>
+            <div style="display: flex; gap: 6px; margin-top: 6px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="setTransferAmount(500)">$500</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="setTransferAmount(9500)">$9,500</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="setTransferAmount(25000)" style="color: var(--amber);">$25,000 (over limit)</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="transferNote">Note / Reference</label>
+            <input type="text" id="transferNote" class="input" placeholder="Invoice #1042">
+          </div>
+
+          <button type="submit" class="btn btn-primary" style="width: 100%;" id="btnSubmitTransfer">
+            Send Transfer
+          </button>
+        </form>
+
+        <div id="transferResultBox" style="margin-top: 14px; display: none;"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- TAB 2: AUDIT LEDGER -->
+  <section id="tab-ledger" class="tab-panel">
+    <div class="card">
+      <div class="card-title-row" style="flex-wrap: wrap; gap: 8px;">
+        <div>
+          <span class="card-heading">Cryptographic Ledger</span>
+          <div style="font-size: 11.5px; color: var(--text-dim); margin-top: 2px;">
+            Immutable double-entry log. Every block is chained using SHA-256: <code>hash(prev_hash + entry + caller)</code>.
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-secondary btn-sm" id="btnVerifyLedger">Verify Hash Chain</button>
+          <button class="btn btn-danger btn-sm" id="btnSimulateTamper" title="Corrupt a database row to test tamper detection">Simulate Tamper</button>
+          <button class="btn btn-secondary btn-sm" id="btnRefreshLedger">Refresh</button>
+        </div>
+      </div>
+
+      <div id="ledgerIntegrityBanner" style="margin-bottom: 12px; display: none;"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Time</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Amount</th>
+              <th>Workload</th>
+              <th>User</th>
+              <th>Previous Hash</th>
+              <th>Entry Hash</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTableBody">
+            <!-- Rendered via JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3: POLICY INSPECTOR -->
+  <section id="tab-inspector" class="tab-panel">
+    <div class="grid-3" style="margin-bottom: 16px;">
+      
+      <!-- mTLS -->
+      <div class="card">
+        <div class="card-title-row">
+          <span class="card-heading">Layer 4 • Workload mTLS</span>
+          <span class="tag" style="color: var(--green);">Verified</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11.5px;">
+          <div><span style="color: var(--text-dim);">Client Cert CN:</span> <code id="inspectClientCN">client-fintech-portal</code></div>
+          <div><span style="color: var(--text-dim);">Server Cert CN:</span> <code id="inspectServerCN">gateway</code></div>
+          <div><span style="color: var(--text-dim);">Root CA:</span> <code>ZeroTrust Banking Root CA</code></div>
+          <div><span style="color: var(--text-dim);">Protocol:</span> <code>TLSv1.3 (Mutual Auth)</code></div>
+          <div><span style="color: var(--text-dim);">Cipher:</span> <code>TLS_AES_256_GCM_SHA384</code></div>
+        </div>
+      </div>
+
+      <!-- JWT -->
+      <div class="card">
+        <div class="card-title-row">
+          <span class="card-heading">Layer 7 • Subject JWT Claims</span>
+          <span class="tag">Bearer</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11.5px;">
+          <div><span style="color: var(--text-dim);">Subject (sub):</span> <code id="inspectJwtSub">alice</code></div>
+          <div><span style="color: var(--text-dim);">Role (role):</span> <code id="inspectJwtRole">customer</code></div>
+          <div><span style="color: var(--text-dim);">Issuer:</span> <code>zerotrust-gateway</code></div>
+          <div><span style="color: var(--text-dim);">Expires in:</span> <span id="inspectJwtExp">7200s</span></div>
+          <div style="margin-top: 4px;">
+            <span class="hash" id="inspectJwtRaw" style="max-width: 100%; display: block;">eyJhbGciOi...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPA -->
+      <div class="card">
+        <div class="card-title-row">
+          <span class="card-heading">Layer 7 • Policy Decision (OPA)</span>
+          <span class="tag">PDP</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11.5px;">
+          <div><span style="color: var(--text-dim);">PDP Engine:</span> <code>opa:8181</code></div>
+          <div><span style="color: var(--text-dim);">Policy:</span> <code>authz.rego</code></div>
+          <div><span style="color: var(--text-dim);">Last Decision:</span> <strong id="inspectOpaDecision" style="color: var(--green);">ALLOW</strong></div>
+          <div style="margin-top: 4px; padding: 6px 8px; background: #05070a; border-radius: 4px; font-size: 11px; color: var(--text-muted);" id="inspectOpaReason">
+            Identity and ownership rule evaluated and allowed.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Event Stream -->
+    <div class="card">
+      <div class="card-title-row">
+        <span class="card-heading">Event Stream</span>
+        <button class="btn btn-secondary btn-sm" onclick="clearTelemetryLog()">Clear</button>
+      </div>
+      <div class="terminal" id="siemTerminalOutput">
+        <div style="color: var(--text-dim);">[Connected] Listening to Gateway, Account-Service, and Ledger-Service logs.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 4: SECURITY SCENARIOS -->
+  <section id="tab-scenarios" class="tab-panel">
+    <div class="card" style="margin-bottom: 16px;">
+      <div class="card-title-row">
+        <div>
+          <span class="card-heading">Zero-Trust Test Scenarios</span>
+          <div style="font-size: 11.5px; color: var(--text-dim); margin-top: 2px;">
+            Click any scenario to execute live requests and inspect OPA decisions and mTLS enforcement.
+          </div>
+        </div>
+      </div>
+
+      <div id="scenariosList">
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">1. Customer reads own account</div>
+            <div class="scenario-desc">Alice reads acc_1001 with valid client mTLS cert and JWT. Allowed by ABAC ownership.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(1)">Run Test 1</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">2. Customer reads another user's account (BOLA Attack)</div>
+            <div class="scenario-desc">Alice attempts to read Bob's account (acc_1002). Blocked by OPA ownership rule (HTTP 403).</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(2)">Run Test 2</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">3. Customer transfer within limit ($500)</div>
+            <div class="scenario-desc">Alice transfers $500 to Bob. Allowed under $10,000 threshold and journaled to Ledger.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(3)">Run Test 3</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">4. Customer transfer exceeding limit ($25,000)</div>
+            <div class="scenario-desc">Alice attempts $25k transfer. Blocked by OPA threshold guardrail before database write.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(4)">Run Test 4</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">5. Bank Teller assisted high-value transfer ($25,000)</div>
+            <div class="scenario-desc">Tim Teller initiates $25,000 transfer. Authorized under Teller $50,000 policy threshold.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(5)">Run Test 5</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">6. Compliance Officer audits ledger</div>
+            <div class="scenario-desc">Carol Auditor reads the double-entry journal and validates all SHA-256 chain links.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(6)">Run Test 6</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">7. Customer attempts to access audit trail</div>
+            <div class="scenario-desc">Alice attempts to query the Ledger audit trail. Blocked by OPA role check (requires compliance).</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(7)">Run Test 7</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">8. Lateral movement: Direct bypass to Core Ledger (:8002)</div>
+            <div class="scenario-desc">Rogue client directly calls Ledger Service with rogue cert. Blocked because workload CN != account-service.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(8)">Run Test 8</button>
+        </div>
+
+        <div class="scenario-item">
+          <div>
+            <div class="scenario-title">9. Untrusted or missing client certificate</div>
+            <div class="scenario-desc">Client attempts connection with untrusted CA certificate. Terminated at Layer 4 TLS handshake.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="triggerScenario(9)">Run Test 9</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scenario Output Console -->
+    <div class="card">
+      <div class="card-title-row">
+        <span class="card-heading">Test Output</span>
+        <span class="tag" id="scenarioVerdictBadge">Ready</span>
+      </div>
+      <div class="terminal" id="scenarioTerminalOutput">
+        <div style="color: var(--text-dim);">Run a scenario above to inspect live request headers, OPA decisions, and responses.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 5: WIRESHARK LIVE DEMO -->
+  <section id="tab-wireshark" class="tab-panel">
+    <div class="card" style="margin-bottom: 16px;">
+      <div class="card-title-row">
+        <div>
+          <span class="card-heading">Wireshark Packet Analysis Guide</span>
+          <div style="font-size: 11.5px; color: var(--text-dim); margin-top: 2px;">
+            Step-by-step instructions to inspect mTLS handshakes and encrypted data on the wire.
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnWiresharkBurst">Send Test Traffic Burst</button>
+      </div>
+
+      <div class="grid-2">
+        <!-- Left: Command and Filters -->
+        <div>
+          <label style="font-size: 11px; color: var(--text-dim); font-weight: 500; display: block; margin-bottom: 4px;">
+            Launch Wireshark on Docker/Host Interface:
+          </label>
+          <div class="codebox">
+            <span>sudo wireshark -i any -k -f "tcp port 8000 or tcp port 8001 or tcp port 8002"</span>
+            <button class="btn btn-secondary btn-sm" onclick="copyFilter('sudo wireshark -i any -k -f \\\"tcp port 8000 or tcp port 8001 or tcp port 8002\\\"')">Copy</button>
+          </div>
+
+          <label style="font-size: 11px; color: var(--text-dim); font-weight: 500; display: block; margin-bottom: 4px;">
+            Wireshark Display Filters (Click to copy):
+          </label>
+          <div class="filter-grid">
+            <div class="filter-cell" onclick="copyFilter('tls.handshake.type == 13')">
+              <code>tls.handshake.type == 13</code>
+              <span style="color: var(--text-dim); font-size: 10px;">Cert Request</span>
+            </div>
+            <div class="filter-cell" onclick="copyFilter('tls.handshake.type == 11')">
+              <code>tls.handshake.type == 11</code>
+              <span style="color: var(--text-dim); font-size: 10px;">Certificates</span>
+            </div>
+            <div class="filter-cell" onclick="copyFilter('tls.handshake.type == 15')">
+              <code>tls.handshake.type == 15</code>
+              <span style="color: var(--text-dim); font-size: 10px;">Cert Verify</span>
+            </div>
+            <div class="filter-cell" onclick="copyFilter('tcp.port in {8000, 8001, 8002}')">
+              <code>tcp.port in {8000, 8001, 8002}</code>
+              <span style="color: var(--text-dim); font-size: 10px;">Mesh Ports</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Demo Talking Points -->
+        <div style="background: #0d0f14; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px;">
+          <div style="font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 8px;">
+            What to show the audience:
+          </div>
+          <ol style="font-size: 11.5px; color: var(--text-muted); padding-left: 16px; display: flex; flex-direction: column; gap: 6px;">
+            <li>
+              <strong style="color: #fff;">Certificate Request (Type 13):</strong> Show that the server sends a Certificate Request. In regular one-way HTTPS, servers never ask for client certs.
+            </li>
+            <li>
+              <strong style="color: #fff;">Client Certificate Exchange (Type 11):</strong> Show the client replying with its certificate (Subject CN <code>client-fintech-portal</code> or <code>account-service</code>).
+            </li>
+            <li>
+              <strong style="color: #fff;">Encrypted Traffic:</strong> Show that all transfer amounts and JSON payloads are completely encrypted under TLS 1.3 / AES-256.
+            </li>
+            <li>
+              <strong style="color: #fff;">Layer 7 Policy Defense (Scenario 8):</strong> Show that even when a rogue cert completes TLS at Layer 4, OPA rejects the request with HTTP 403 at Layer 7.
+            </li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <!-- Traffic Burst Output -->
+    <div class="card">
+      <div class="card-title-row">
+        <span class="card-heading">Traffic Burst Status</span>
+      </div>
+      <div id="wiresharkBurstOutput" style="font-size: 12px; color: var(--text-dim);">
+        Click <strong>"Send Test Traffic Burst"</strong> above to generate 4 live mTLS handshakes between microservices for Wireshark inspection.
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div id="toast-container"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
